@@ -42,9 +42,9 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/sol-meme-sdk"
-"Bug Reports" = "https://github.com/yourusername/sol-meme-sdk/issues"
-"Source" = "https://github.com/yourusername/sol-meme-sdk"
+"Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
+"Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
+"Source" = "hhttps://github.com/UselessXiaoYao/sol-meme-sdk.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
