@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sol-meme-sdk"
+version = "0.1.0"
+description = "Python SDK for trading meme coins on Solana blockchain"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "solana>=0.30.0",
+    "solders>=0.18.0",
+    "aiohttp>=3.8.0",
+    "pydantic>=2.0.0",
+    "base58>=2.1.0",
+    "asyncio-mqtt>=0.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/yourusername/sol-meme-sdk"
+"Bug Reports" = "https://github.com/yourusername/sol-meme-sdk/issues"
+"Source" = "https://github.com/yourusername/sol-meme-sdk"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sol_meme_sdk*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']

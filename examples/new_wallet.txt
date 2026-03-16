@@ -1,0 +1,8 @@
+Generating a new keypair
+Wrote new keypair to new_wallet.json
+===========================================================================
+pubkey: 7gtkxD1SYujWrYkwnvQBRTDGqaogmHX7DYhads5Pqzgr
+===========================================================================
+Save this seed phrase to recover your new keypair:
+coconut theory margin nest know seminar marine initial rebel salon try park
+===========================================================================
