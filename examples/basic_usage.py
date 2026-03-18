@@ -36,8 +36,8 @@ async def main():
         print(f"Address: {wallet_info['address']}")
         print(f"SOL Balance: {wallet_info['balance_sol']:.6f} SOL")
         
-        # Example token address (replace with actual token)
-        token_address = "So11111111111111111111111111111111111111112"  # SOL placeholder
+        # Use SOL token for demonstration
+        token_address = "So11111111111111111111111111111111111111112"  # SOL token
         
         # Get token info
         print(f"\nToken Information:")

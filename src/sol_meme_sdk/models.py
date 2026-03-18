@@ -80,6 +80,14 @@ class MarketData(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="Data timestamp")
 
 
+class DEXProtocol(str, Enum):
+    """DEX protocols supported"""
+    JUPITER = "jupiter"
+    RAYDIUM = "raydium"
+    PUMP_FUN = "pump_fun"
+    AUTO = "auto"  # Automatically select best DEX
+
+
 class TransactionConfig(BaseModel):
     """Transaction configuration"""
     max_retries: int = Field(3, description="Maximum retry attempts")
@@ -87,3 +95,6 @@ class TransactionConfig(BaseModel):
     timeout: float = Field(30.0, description="Transaction timeout in seconds")
     skip_preflight: bool = Field(False, description="Skip preflight checks")
     commitment: str = Field("confirmed", description="Blockchain commitment level")
+    dex_protocol: DEXProtocol = Field(DEXProtocol.AUTO, description="DEX protocol to use")
+    jupiter_slippage_bps: int = Field(50, description="Jupiter slippage in basis points (1 = 0.01%)")
+    enable_devnet_testing: bool = Field(False, description="Enable devnet testing mode")

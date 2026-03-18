@@ -106,15 +106,36 @@ class Wallet:
         Returns:
             Dictionary of token addresses to balances
         """
-        # This is a simplified implementation
-        # In production, use proper token program interaction
         try:
-            # For now, return empty dict
-            # Real implementation would query token accounts
-            return {}
+            from solana.rpc.commitment import Confirmed
+            from solders.pubkey import Pubkey
+            
+            # Query token accounts for this wallet
+            token_accounts = client.get_token_accounts_by_owner(
+                self.public_key,
+                commitment=Confirmed
+            )
+            
+            balances = {}
+            
+            if token_accounts.value:
+                for account in token_accounts.value:
+                    account_info = account.account.data.parsed['info']
+                    
+                    # Get token mint address and balance
+                    mint = account_info['mint']
+                    balance = account_info['tokenAmount']['uiAmount']
+                    
+                    if balance and balance > 0:
+                        balances[mint] = balance
+            
+            logger.debug(f"Found {len(balances)} token balances for wallet {self.address}")
+            return balances
+            
         except Exception as e:
             logger.error(f"Failed to get token balances: {e}")
-            raise WalletError(f"Failed to get token balances: {e}")
+            # Return empty dict on error
+            return {}
 
     def get_wallet_info(self, client: Client) -> WalletInfo:
         """

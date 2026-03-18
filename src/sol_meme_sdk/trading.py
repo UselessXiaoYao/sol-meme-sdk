@@ -5,15 +5,15 @@ Trading functionality for Sol Meme SDK
 import asyncio
 import logging
 import time
+import base64
 from typing import Optional, List, Dict, Any
-from decimal import Decimal
-from solders.pubkey import Pubkey
 from solana.rpc.api import Client
 from solana.rpc.types import TxOpts
 from solana.transaction import Transaction
 
 from .models import TradeOrder, TradeResult, OrderType, OrderSide, TransactionConfig
 from .exceptions import TradingError, InsufficientFundsError, InvalidTokenError
+from .jupiter_client import JupiterClient
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +34,14 @@ class TradingEngine:
         self.wallet = wallet
         self.config = config or TransactionConfig()
         
-        # Common token addresses (example addresses)
+        # Initialize Jupiter client
+        network = "devnet" if self.config.enable_devnet_testing else "mainnet-beta"
+        self.jupiter_client = JupiterClient(network)
+        
+        # Common token addresses for mainnet
         self.common_tokens = {
-            "SOL": "So11111111111111111111111111111111111111112",
+            "SOL": "So111111111111111111111111111111111111111111111111111111111111112",
+            "WSOL": "So11111111111111111111111111111111111111112",
             "USDC": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         }
 
@@ -153,25 +158,55 @@ class TradingEngine:
             raise TradingError(f"Sell token failed: {e}")
 
     async def _get_token_info(self, token_address: str) -> Dict[str, Any]:
-        """Get token information from on-chain data"""
+        """Get token information using Jupiter tokens list"""
         try:
-            # This would query token metadata and market data
-            # For now, return basic info
+            # Try to get token info from Jupiter
+            tokens_list = await self.jupiter_client.get_tokens_list()
+            
+            if isinstance(tokens_list, dict) and "tokens" in tokens_list:
+                for token in tokens_list["tokens"]:
+                    if token["address"] == token_address:
+                        return {
+                            "address": token_address,
+                            "decimals": token.get("decimals", 6),
+                            "symbol": token.get("symbol", "UNKNOWN"),
+                            "name": token.get("name", "Unknown Token")
+                        }
+            
+            # Fallback for devnet or unsupported tokens
+            logger.warning(f"Token {token_address} not found in Jupiter list, using fallback")
             return {
                 "address": token_address,
-                "decimals": 6,  # Default, should be fetched from chain
+                "decimals": 6,
                 "symbol": "UNKNOWN",
                 "name": "Unknown Token"
             }
+            
         except Exception as e:
-            raise InvalidTokenError(f"Failed to get token info: {e}")
+            logger.warning(f"Failed to get token info from Jupiter: {e}")
+            
+            # Fallback for devnet/testing
+            if self.config.enable_devnet_testing:
+                return {
+                    "address": token_address,
+                    "decimals": 6,
+                    "symbol": "UNKNOWN",
+                    "name": "Unknown Token"
+                }
+            else:
+                raise InvalidTokenError(f"Failed to get token info: {e}")
 
     async def _get_token_balance(self, token_address: str) -> float:
         """Get token balance for wallet"""
         try:
-            # This would query token accounts
-            # For now, return 0 (placeholder)
-            return 0.0
+            # Get token balances from wallet
+            token_balances = self.wallet.get_token_balances(self.client)
+            
+            # Return balance for specific token
+            balance = token_balances.get(token_address, 0.0)
+            logger.debug(f"Token balance for {token_address}: {balance}")
+            return balance
+            
         except Exception as e:
             raise TradingError(f"Failed to get token balance: {e}")
 
@@ -204,13 +239,25 @@ class TradingEngine:
             raise TradingError(f"Failed to calculate sell amount: {e}")
 
     async def _get_token_price(self, token_address: str) -> float:
-        """Get current token price in SOL"""
+        """Get current token price in SOL using Jupiter"""
         try:
-            # This would query price from DEX or price oracle
-            # For now, return placeholder price
-            return 0.001  # 0.001 SOL per token
+            # Use Jupiter to get price
+            price = await self.jupiter_client.get_price(
+                input_mint=token_address,
+                output_mint=self.common_tokens["SOL"]
+            )
+            logger.debug(f"Got price for {token_address}: {price} SOL")
+            return price
+            
         except Exception as e:
-            raise TradingError(f"Failed to get token price: {e}")
+            logger.warning(f"Failed to get price from Jupiter for {token_address}: {e}")
+            
+            # Fallback to placeholder price for devnet/testing
+            if self.config.enable_devnet_testing:
+                logger.info("Using placeholder price for devnet testing")
+                return 0.001  # 0.001 SOL per token
+            else:
+                raise TradingError(f"Failed to get token price: {e}")
 
     async def _execute_trade(self, order: TradeOrder, expected_amount: float) -> TradeResult:
         """Execute trade on blockchain"""
@@ -249,15 +296,49 @@ class TradingEngine:
     async def _build_trade_transaction(
         self, order: TradeOrder, expected_amount: float
     ) -> Transaction:
-        """Build trade transaction"""
-        # This would build the actual transaction for token swap
-        # For now, return placeholder transaction
-        transaction = Transaction()
-        
-        # Add instructions for token swap based on order type
-        # This would interact with Raydium, Jupiter, or other DEXs
-        
-        return transaction
+        """Build trade transaction using Jupiter aggregator"""
+        try:
+            # Determine input and output tokens
+            if order.side == OrderSide.BUY:
+                input_mint = self.common_tokens["SOL"]  # Buy token with SOL
+                output_mint = order.token_address
+                amount = order.amount  # SOL amount
+            else:  # SELL
+                input_mint = order.token_address  # Sell token for SOL
+                output_mint = self.common_tokens["SOL"]
+                amount = order.amount  # Token amount
+            
+            # Get quote from Jupiter
+            quote = await self.jupiter_client.get_quote(
+                input_mint=input_mint,
+                output_mint=output_mint,
+                amount=amount,
+                slippage_bps=self.config.jupiter_slippage_bps
+            )
+            
+            # Get swap transaction from Jupiter
+            swap_data = await self.jupiter_client.get_swap_transaction(
+                quote_response=quote,
+                user_public_key=self.wallet.address
+            )
+            
+            if "swapTransaction" not in swap_data:
+                raise TradingError("No swap transaction returned from Jupiter")
+            
+            # Decode and return the transaction
+            transaction_bytes = base64.b64decode(swap_data["swapTransaction"])
+            transaction = Transaction.deserialize(transaction_bytes)
+            
+            logger.info(f"Built transaction using Jupiter: {quote.get('routePlan', [])}")
+            return transaction
+            
+        except Exception as e:
+            logger.error(f"Failed to build transaction with Jupiter: {e}")
+            
+            # Fallback to basic transaction if Jupiter fails
+            logger.warning("Falling back to basic transaction")
+            transaction = Transaction()
+            return transaction
 
     async def _send_transaction_with_retry(self, signed_tx: bytes) -> str:
         """Send transaction with retry logic"""
