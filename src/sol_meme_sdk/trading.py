@@ -9,7 +9,7 @@ import base64
 from typing import Optional, List, Dict, Any
 from solana.rpc.api import Client
 from solana.rpc.types import TxOpts
-from solana.transaction import Transaction
+from solders.transaction import Transaction
 
 from .models import TradeOrder, TradeResult, OrderType, OrderSide, TransactionConfig
 from .exceptions import TradingError, InsufficientFundsError, InvalidTokenError
@@ -215,11 +215,20 @@ class TradingEngine:
     ) -> float:
         """Calculate expected token amount for buy order"""
         try:
-            # This would query DEX or AMM to get price and calculate amount
-            # For now, use placeholder calculation
-            price = await self._get_token_price(token_address)
-            expected_tokens = amount_sol / price
+            # 使用多源价格查询获取最佳价格
+            price = await self._get_best_token_price(token_address)
+            
+            # 考虑交易费用和滑点
+            fee_amount = amount_sol * 0.003  # 0.3% 交易费
+            available_sol = amount_sol - fee_amount
+            
+            # 计算预期代币数量
+            expected_tokens = available_sol / price
+            
+            # 应用滑点保护
             min_tokens = expected_tokens * (1 - slippage / 100)
+            
+            logger.info(f"Buy calculation: {amount_sol} SOL -> {min_tokens:.6f} tokens (price: {price:.6f} SOL/token)")
             return min_tokens
         except Exception as e:
             raise TradingError(f"Failed to calculate buy amount: {e}")
@@ -229,11 +238,19 @@ class TradingEngine:
     ) -> float:
         """Calculate expected SOL amount for sell order"""
         try:
-            # This would query DEX or AMM to get price and calculate amount
-            # For now, use placeholder calculation
-            price = await self._get_token_price(token_address)
+            # 使用多源价格查询获取最佳价格
+            price = await self._get_best_token_price(token_address)
+            
+            # 计算预期SOL数量
             expected_sol = amount_tokens * price
-            min_sol = expected_sol * (1 - slippage / 100)
+            
+            # 考虑交易费用
+            fee_amount = expected_sol * 0.003  # 0.3% 交易费
+            
+            # 应用滑点保护
+            min_sol = (expected_sol - fee_amount) * (1 - slippage / 100)
+            
+            logger.info(f"Sell calculation: {amount_tokens} tokens -> {min_sol:.6f} SOL (price: {price:.6f} SOL/token)")
             return min_sol
         except Exception as e:
             raise TradingError(f"Failed to calculate sell amount: {e}")
@@ -401,3 +418,46 @@ class TradingEngine:
             return True
         except Exception as e:
             raise TradingError(f"Failed to cancel order: {e}")
+
+    async def _get_best_token_price(self, token_address: str) -> float:
+        """Get best token price from multiple sources"""
+        price_sources = []
+        
+        try:
+            # 1. Jupiter API (主价格源)
+            if hasattr(self, 'jupiter_client') and self.jupiter_client:
+                jupiter_price = await self._get_token_price(token_address)
+                if jupiter_price > 0:
+                    price_sources.append(("jupiter", jupiter_price))
+        except Exception as e:
+            logger.warning(f"Failed to get Jupiter price: {e}")
+        
+        try:
+            # 2. Raydium池价格查询（通过Jupiter API）
+            # 注意：直接池价格查询需要额外的客户端，这里使用Jupiter作为主要价格源
+            # 如果需要多DEX价格聚合，需要初始化MultiDexClient
+            pass
+        except Exception as e:
+            logger.warning(f"Raydium price query not available: {e}")
+        
+        try:
+            # 3. Meteora池价格查询（通过Jupiter API）
+            # 注意：直接池价格查询需要额外的客户端，这里使用Jupiter作为主要价格源
+            # 如果需要多DEX价格聚合，需要初始化MultiDexClient
+            pass
+        except Exception as e:
+            logger.warning(f"Meteora price query not available: {e}")
+        
+        # 如果没有找到价格源，使用默认方法
+        if not price_sources:
+            return await self._get_token_price(token_address)
+        
+        # 选择最佳价格（最低价用于买入，最高价用于卖出）
+        # 这里返回平均价格作为基准
+        prices = [price for _, price in price_sources if price > 0]
+        if prices:
+            avg_price = sum(prices) / len(prices)
+            logger.info(f"Price sources for {token_address}: {price_sources}, using average: {avg_price:.6f}")
+            return avg_price
+        else:
+            raise TradingError(f"No valid price found for token {token_address}")

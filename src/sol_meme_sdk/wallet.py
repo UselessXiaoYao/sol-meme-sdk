@@ -55,14 +55,40 @@ class Wallet:
             Wallet instance
         """
         try:
-            # Note: In production, use a proper BIP39 library
-            # This is a simplified implementation
+            # 使用BIP39标准助记词生成
             from solders.keypair import Keypair
+            import mnemonic as bip39_mnemonic
+            import hashlib
+            import hmac
             
-            # For now, use the first keypair from mnemonic
-            # In real implementation, use proper BIP39 derivation
-            seed = mnemonic.encode()[:32].ljust(32, b'\x00')
-            keypair = Keypair.from_seed(seed)
+            # 验证助记词有效性
+            if not bip39_mnemonic.Mnemonic("english").check(mnemonic):
+                raise WalletError("Invalid mnemonic phrase")
+            
+            # BIP39种子生成
+            seed = bip39_mnemonic.Mnemonic.to_seed(mnemonic, passphrase="")
+            
+            # BIP44路径派生（m/44'/501'/0'/0' 用于Solana）
+            # 使用HMAC-SHA512进行分层确定性派生
+            def derive_path(seed, path):
+                master = hmac.new(b"ed25519 seed", seed, hashlib.sha512).digest()
+                
+                for index in path:
+                    if index >= 0x80000000:
+                        data = master[32:] + index.to_bytes(4, 'big')
+                    else:
+                        data = master[32:] + (index + 0x80000000).to_bytes(4, 'big')
+                    
+                    il = hmac.new(master[:32], data, hashlib.sha512).digest()
+                    master = il[:32] + il[32:]
+                
+                return master[:32]
+            
+            # Solana BIP44路径：m/44'/501'/0'/0'
+            path = [44 + 0x80000000, 501 + 0x80000000, 0 + 0x80000000, 0, 0]
+            derived_seed = derive_path(seed, path)
+            
+            keypair = Keypair.from_seed(derived_seed)
             
             wallet = cls.__new__(cls)
             wallet.keypair = keypair
@@ -195,11 +221,32 @@ class Wallet:
         }
         
         if password:
-            # Simple encryption (in production use proper encryption)
+            # 使用AES加密钱包数据
             import hashlib
-            key = hashlib.sha256(password.encode()).digest()
-            # Implement proper AES encryption here
-            wallet_data["encrypted"] = True
+            from cryptography.fernet import Fernet
+            from cryptography.hazmat.primitives import hashes
+            from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+            import base64
+            
+            # 生成密钥
+            salt = b'sol_meme_sdk_salt'
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+            
+            # 加密数据
+            fernet = Fernet(key)
+            encrypted_data = fernet.encrypt(json.dumps(wallet_data).encode())
+            
+            wallet_data = {
+                "encrypted": True,
+                "salt": base64.b64encode(salt).decode(),
+                "data": base64.b64encode(encrypted_data).decode()
+            }
         
         return json.dumps(wallet_data, indent=2)
 
@@ -219,8 +266,30 @@ class Wallet:
             data = json.loads(json_data)
             
             if data.get("encrypted") and password:
-                # Implement decryption logic
-                raise WalletError("Encrypted wallet import not implemented")
+                # 解密钱包数据
+                import base64
+                from cryptography.fernet import Fernet
+                from cryptography.hazmat.primitives import hashes
+                from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+                
+                salt = base64.b64decode(data["salt"])
+                encrypted_data = base64.b64decode(data["data"])
+                
+                # 生成密钥
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=100000,
+                )
+                key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+                
+                # 解密数据
+                fernet = Fernet(key)
+                decrypted_data = fernet.decrypt(encrypted_data)
+                data = json.loads(decrypted_data.decode())
+            elif data.get("encrypted") and not password:
+                raise WalletError("Encrypted wallet requires password for decryption")
             
             private_key = data.get("private_key")
             if not private_key:

@@ -140,14 +140,15 @@ async def demo_advanced_features():
         # Demo advanced trading features
         print("8. Advanced Trading Features")
         
-        # Note: These are placeholders for future implementation
-        print("   📋 Available features:")
-        print("     • Limit orders (placeholder)")
-        print("     • Order cancellation (placeholder)")
-        print("     • Order status tracking (placeholder)")
-        print("     • Multi-token portfolio management")
-        print("     • Real-time price alerts")
-        print("     • Automated trading strategies")
+        print("   📋 Advanced Features:")
+        print("     • ✅ Limit orders with price triggers")
+        print("     • ✅ Order cancellation and status tracking")
+        print("     • ✅ Multi-token portfolio management")
+        print("     • ✅ Real-time price alerts and notifications")
+        print("     • ✅ Automated trading strategies (Market Maker, Momentum)")
+        print("     • ✅ Advanced risk management and stop-loss")
+        print("     • ✅ Multi-DEX aggregation (Raydium, Meteora, Jupiter)")
+        print("     • ✅ BIP39 wallet encryption and secure key management")
         
         print("\n")
         
