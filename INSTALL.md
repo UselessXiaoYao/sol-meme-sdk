@@ -50,8 +50,16 @@ import asyncio
 from sol_meme_sdk import SolMemeClient
 
 async def test_installation():
+    # 创建客户端实例（不需要钱包私钥即可测试基本功能）
     client = SolMemeClient()
-    print("✅ SDK 安装成功！")
+    
+    # 测试连接
+    connected = await client.connect()
+    if connected:
+        print("✅ SDK 安装成功！")
+        print("✅ 成功连接到 Solana 网络")
+    else:
+        print("❌ 连接失败")
 
 asyncio.run(test_installation())
 ```

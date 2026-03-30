@@ -58,7 +58,7 @@ class SolMemeClient:
         self.jupiter_client = JupiterClient()
         
         # Initialize trading engine
-        self.trading = TradingEngine(self.solana_client, self.wallet, self.config)
+        self.trading = TradingEngine(self.wallet, self.config)
         
         # Initialize strategy manager
         self.strategy_manager = StrategyManager(self.trading)
