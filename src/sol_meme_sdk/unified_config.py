@@ -11,18 +11,26 @@ class UnifiedConfig:
     """统一配置管理类"""
     
     def __init__(self, env_file: str = None):
-        # 加载环境文件 - 优先使用提供的文件，否则自动查找项目根目录的.env文件
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        
+        # 加载环境文件 - 多种查找策略
         if env_file and os.path.exists(env_file):
             from dotenv import load_dotenv
             load_dotenv(env_file)
         else:
-            # 自动查找项目根目录的.env文件
+            # 策略1：查找当前工作目录的.env文件
+            cwd_env = os.path.join(os.getcwd(), ".env")
+            if os.path.exists(cwd_env):
+                from dotenv import load_dotenv
+                load_dotenv(cwd_env)
+            
+            # 策略2：查找项目根目录的.env文件
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
             env_path = os.path.join(project_root, ".env")
             if os.path.exists(env_path):
                 from dotenv import load_dotenv
                 load_dotenv(env_path)
+            
+            # 策略3：尝试从环境变量加载
+            # 如果以上都没有找到，依赖系统环境变量
         
         # Solana网络配置
         self.solana_network = os.getenv("SOLANA_NETWORK", "mainnet-beta")
