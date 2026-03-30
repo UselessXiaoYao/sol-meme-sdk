@@ -97,4 +97,6 @@ class TransactionConfig(BaseModel):
     commitment: str = Field("confirmed", description="Blockchain commitment level")
     dex_protocol: DEXProtocol = Field(DEXProtocol.AUTO, description="DEX protocol to use")
     jupiter_slippage_bps: int = Field(50, description="Jupiter slippage in basis points (1 = 0.01%)")
+    raydium_slippage_bps: int = Field(50, description="Raydium slippage in basis points (1 = 0.01%)")
     enable_devnet_testing: bool = Field(False, description="Enable devnet testing mode")
+    dex_priority: list = Field(default_factory=lambda: ["raydium", "jupiter"], description="DEX priority order")

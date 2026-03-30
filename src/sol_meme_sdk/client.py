@@ -10,7 +10,7 @@ from solana.rpc.api import Client
 from solana.rpc.commitment import Confirmed
 
 from .wallet import Wallet
-from .trading import TradingEngine
+from .trading_engine import TradingEngine
 from .strategies import StrategyManager, StrategyConfig, StrategyType, MarketMakerStrategy, TrendFollowingStrategy
 from .monitor import PriceMonitor, PortfolioMonitor, AlertType, AlertConfig
 from .models import Network, TokenInfo, TradeOrder, TradeResult, TransactionConfig

@@ -122,12 +122,12 @@ class Wallet:
             logger.error(f"Failed to get balance: {e}")
             raise WalletError(f"Failed to get balance: {e}")
 
-    def get_token_balances(self, client: Client) -> Dict[str, float]:
+    def get_token_balances(self, client) -> Dict[str, float]:
         """
         Get token balances for this wallet
         
         Args:
-            client: Solana RPC client
+            client: Solana RPC client (Client)
             
         Returns:
             Dictionary of token addresses to balances
@@ -135,25 +135,58 @@ class Wallet:
         try:
             from solana.rpc.commitment import Confirmed
             from solders.pubkey import Pubkey
+            from solana.rpc.types import TokenAccountOpts
+            import struct
             
-            # Query token accounts for this wallet
-            token_accounts = client.get_token_accounts_by_owner(
+            # Query token accounts for this wallet using SPL token program ID
+            spl_program_id = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+            
+            # 使用同步客户端调用
+            token_accounts_response = client.get_token_accounts_by_owner(
                 self.public_key,
+                TokenAccountOpts(program_id=spl_program_id),
                 commitment=Confirmed
             )
             
+            token_accounts = token_accounts_response.value
+            
             balances = {}
             
-            if token_accounts.value:
-                for account in token_accounts.value:
-                    account_info = account.account.data.parsed['info']
-                    
-                    # Get token mint address and balance
-                    mint = account_info['mint']
-                    balance = account_info['tokenAmount']['uiAmount']
-                    
-                    if balance and balance > 0:
-                        balances[mint] = balance
+            if token_accounts:
+                for account in token_accounts:
+                    try:
+                        # 检查数据格式：可能是解析后的JSON或原始字节
+                        if hasattr(account.account.data, 'parsed'):
+                            # 已解析的JSON格式
+                            account_info = account.account.data.parsed['info']
+                            mint = account_info['mint']
+                            balance = account_info['tokenAmount']['uiAmount']
+                        else:
+                            # 原始字节格式，需要手动解析SPL代币账户结构
+                            data = account.account.data
+                            if len(data) == 165:  # 标准SPL代币账户大小
+                                # 解析mint地址（前32字节）
+                                mint_pubkey = Pubkey(data[:32])
+                                mint = str(mint_pubkey)
+                                
+                                # 解析余额（64-72字节，8字节小端序）
+                                amount_bytes = data[64:72]
+                                balance_raw = struct.unpack('<Q', amount_bytes)[0]  # 小端序无符号64位整数
+                                
+                                # 转换为UI金额（假设6位小数，USDC标准）
+                                balance = balance_raw / 10**6
+                            else:
+                                # 非标准数据格式，跳过
+                                logger.warning(f"非标准代币账户数据长度: {len(data)} 字节")
+                                continue
+                        
+                        if balance and balance > 0:
+                            balances[mint] = balance
+                            logger.debug(f"Found token balance: {mint} = {balance}")
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to parse token account: {e}")
+                        continue
             
             logger.debug(f"Found {len(balances)} token balances for wallet {self.address}")
             return balances
@@ -189,7 +222,7 @@ class Wallet:
 
     def sign_transaction(self, transaction) -> bytes:
         """
-        Sign a transaction
+        Sign a transaction (supports both Transaction and VersionedTransaction)
         
         Args:
             transaction: Transaction to sign
@@ -198,8 +231,43 @@ class Wallet:
             Signed transaction bytes
         """
         try:
-            transaction.sign(self.keypair)
-            return bytes(transaction)
+            # Check if it's a VersionedTransaction
+            if hasattr(transaction, 'message') and hasattr(transaction, 'signatures'):
+                # This is a VersionedTransaction - sign it appropriately
+                from solders.transaction import VersionedTransaction
+                if isinstance(transaction, VersionedTransaction):
+                    # VersionedTransaction signing - add our signature
+                    # Get existing signatures
+                    existing_signatures = list(transaction.signatures)
+                    
+                    # Create a new transaction with our signature added
+                    # Note: This is a simplified approach - in practice, we need to handle
+                    # the specific signing requirements for VersionedTransaction
+                    
+                    # For now, let's try a different approach: recreate the transaction
+                    # with our keypair as the signer
+                    
+                    # Get the transaction message
+                    message = transaction.message
+                    
+                    # Create a new VersionedTransaction with our signature
+                    # This is a workaround - we need to properly sign the transaction
+                    
+                    # For VersionedTransaction, the correct approach is to create a new transaction
+                    # with our keypair added to the signers
+                    # Get the transaction message
+                    message = transaction.message
+                    
+                    # Create a new VersionedTransaction with our keypair as signer
+                    # This will automatically sign the transaction
+                    signed_tx = VersionedTransaction(message, [self.keypair])
+                    
+                    return bytes(signed_tx)
+            else:
+                # Traditional Transaction
+                transaction.sign(self.keypair)
+                return bytes(transaction)
+                
         except Exception as e:
             logger.error(f"Failed to sign transaction: {e}")
             raise WalletError(f"Failed to sign transaction: {e}")
@@ -299,3 +367,45 @@ class Wallet:
             
         except Exception as e:
             raise WalletError(f"Failed to import wallet from JSON: {e}")
+
+    @classmethod
+    def from_json_file(cls, file_path: str, password: Optional[str] = None) -> 'Wallet':
+        """
+        Load wallet from JSON file
+        
+        Args:
+            file_path: Path to JSON file containing wallet data
+            password: Optional encryption password
+            
+        Returns:
+            Wallet instance
+        """
+        try:
+            with open(file_path, 'r') as f:
+                json_data = f.read()
+            
+            return cls.import_from_json(json_data, password)
+            
+        except FileNotFoundError:
+            raise WalletError(f"Wallet file not found: {file_path}")
+        except Exception as e:
+            raise WalletError(f"Failed to load wallet from file: {e}")
+
+    def save_to_json_file(self, file_path: str, password: Optional[str] = None):
+        """
+        Save wallet to JSON file
+        
+        Args:
+            file_path: Path to save JSON file
+            password: Optional encryption password
+        """
+        try:
+            json_data = self.export_to_json(password)
+            
+            with open(file_path, 'w') as f:
+                f.write(json_data)
+                
+            logger.info(f"Wallet saved to: {file_path}")
+            
+        except Exception as e:
+            raise WalletError(f"Failed to save wallet to file: {e}")

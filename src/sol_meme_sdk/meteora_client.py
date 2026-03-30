@@ -19,10 +19,9 @@ from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 from solders.message import Message
 
-from .config import get_config
+from .unified_config import get_config
 from .exceptions import TradingError
 from .wallet import Wallet
-from .api_config import get_api_config
 
 
 class MeteoraClient:
@@ -35,14 +34,14 @@ class MeteoraClient:
             rpc_url: Solana RPC URL
             network: 网络类型 (mainnet, devnet, testnet)
         """
-        # 从环境变量获取配置
-        self.api_config = get_api_config()
+        # 从统一配置获取配置
+        self.config = get_config()
         
-        self.rpc_url = rpc_url or self.api_config.solana_rpc_endpoint
+        self.rpc_url = rpc_url or self.config.solana_rpc_endpoint
         self.network = network
         self.client = AsyncClient(self.rpc_url)
         # Meteora DAMM V2 API基地址（从环境变量读取）
-        self.meteora_api_base = self.api_config.meteora_api_base
+        self.meteora_api_base = self.config.meteora_api_base
         
         # Meteora DAMM V2程序ID（真实ID）
         self.meteora_program_id = Pubkey.from_string("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG")

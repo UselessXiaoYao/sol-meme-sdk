@@ -17,10 +17,10 @@ from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 from solders.message import Message
 
-from .config import get_config
+from .unified_config import get_config
 from .exceptions import TradingError
 from .wallet import Wallet
-from .api_config import get_api_config
+from .priority_fee import PriorityFeeEstimator
 
 
 class RaydiumClient:
@@ -33,15 +33,20 @@ class RaydiumClient:
             rpc_url: Solana RPC URL
             network: 网络类型 (mainnet, devnet, testnet)
         """
-        # 从API配置获取URL
-        self.api_config = get_api_config()
-        self.rpc_url = rpc_url or self.api_config.solana_rpc_endpoint
+        # 从统一配置获取URL
+        self.config = get_config()
+        self.rpc_url = rpc_url or self.config.solana_rpc_endpoint
         self.network = network
         self.client = AsyncClient(self.rpc_url)
-        self.raydium_api_base = self.api_config.raydium_api_base
+        self.raydium_api_base = self.config.raydium_api_base
         
         # Raydium程序ID（从环境变量获取）
-        self.raydium_program_id = Pubkey.from_string(self.api_config.raydium_program_id)
+        self.raydium_program_id = Pubkey.from_string(self.config.raydium_program_id)
+        
+        # 初始化优先级费用估算服务
+        self.priority_fee_estimator = PriorityFeeEstimator(self.rpc_url)
+    
+    # _get_rpc_url 方法已移除，使用全局配置函数 get_private_rpc_url() 和 get_public_rpc_url()
         
     async def connect(self):
         """连接到Solana网络"""
@@ -115,20 +120,43 @@ class RaydiumClient:
             池列表数据
         """
         try:
-            # 使用Raydium的官方API端点
-            url = f"{self.raydium_api_base}/v2/sdk/liquidity/mainnet"
+            # 使用Raydium API v3的官方端点（基于官方文档）
+            url = f"{self.raydium_api_base}/pools/info/list-v2"
+            params = {
+                "size": 100,
+                "sortField": "liquidity", 
+                "sortType": "desc"
+            }
+            
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as resp:
+                async with session.get(url, params=params, timeout=10) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        return data
+                        # API v3返回的数据结构不同，需要适配
+                        if 'data' in data:
+                            return {
+                                'official': data['data'],
+                                'unOfficial': []
+                            }
+                        else:
+                            return {
+                                'official': [],
+                                'unOfficial': []
+                            }
                     else:
-                        # 如果API失败，返回空数据
-                        print(f"⚠️ Raydium API暂时不可用: {resp.status}")
-                        return {
-                            'official': [],
-                            'unOfficial': []
-                        }
+                        # 如果API v3失败，尝试旧的API端点作为备用
+                        print(f"⚠️ Raydium API v3暂时不可用: {resp.status}")
+                        fallback_url = "https://api.raydium.io/v2/sdk/liquidity/mainnet"
+                        async with session.get(fallback_url, timeout=10) as fallback_resp:
+                            if fallback_resp.status == 200:
+                                fallback_data = await fallback_resp.json()
+                                return fallback_data
+                            else:
+                                print(f"⚠️ Raydium API备用端点也失败: {fallback_resp.status}")
+                                return {
+                                    'official': [],
+                                    'unOfficial': []
+                                }
                         
         except Exception as e:
             # API调用失败时返回空数据
@@ -508,6 +536,296 @@ class RaydiumClient:
             
         except Exception as e:
             raise TradingError(f"等待交易确认失败: {e}")
+    
+    async def get_swap_quote(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        slippage_bps: int = 50,
+        tx_version: str = "V0"
+    ) -> Dict[str, Any]:
+        """获取交易报价
+        
+        Args:
+            input_mint: 输入代币mint地址
+            output_mint: 输出代币mint地址
+            amount: 输入金额（基础单位）
+            slippage_bps: 滑点容忍度（basis points，50 = 0.5%）
+            tx_version: 交易版本（V0 或 LEGACY）
+            
+        Returns:
+            交易报价信息
+        """
+        try:
+            url = f"https://transaction-v1.raydium.io/compute/swap-base-in"
+            params = {
+                'inputMint': input_mint,
+                'outputMint': output_mint,
+                'amount': str(amount),
+                'slippageBps': slippage_bps,
+                'txVersion': tx_version
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('success'):
+                            return data
+                        else:
+                            raise TradingError(f"获取报价失败: {data}")
+                    else:
+                        raise TradingError(f"API请求失败: {resp.status}")
+                        
+        except Exception as e:
+            raise TradingError(f"获取交易报价失败: {e}")
+    
+    async def build_swap_transaction(
+        self,
+        swap_response: Dict[str, Any],
+        wallet_address: str,
+        tx_version: str = "V0",
+        wrap_sol: bool = False,
+        unwrap_sol: bool = False,
+        input_account: Optional[str] = None,
+        output_account: Optional[str] = None,
+        compute_unit_price_micro_lamports: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """构建交易
+        
+        Args:
+            swap_response: 报价响应
+            wallet_address: 钱包地址
+            tx_version: 交易版本
+            wrap_sol: 是否包装SOL
+            unwrap_sol: 是否解包SOL
+            input_account: 输入代币账户（SOL为None）
+            output_account: 输出代币账户（SOL为None）
+            compute_unit_price_micro_lamports: 优先级费用（微lamports）
+            
+        Returns:
+            交易构建结果
+        """
+        try:
+            url = f"https://transaction-v1.raydium.io/transaction/swap-base-in"
+            
+            payload = {
+                'swapResponse': swap_response,
+                'wallet': wallet_address,
+                'txVersion': tx_version,
+                'wrapSol': wrap_sol,
+                'unwrapSol': unwrap_sol
+            }
+            
+            if input_account:
+                payload['inputAccount'] = input_account
+            if output_account:
+                payload['outputAccount'] = output_account
+            if compute_unit_price_micro_lamports:
+                payload['computeUnitPriceMicroLamports'] = compute_unit_price_micro_lamports
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=10) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('success'):
+                            return data
+                        else:
+                            raise TradingError(f"构建交易失败: {data}")
+                    else:
+                        raise TradingError(f"API请求失败: {resp.status}")
+                        
+        except Exception as e:
+            raise TradingError(f"构建交易失败: {e}")
+    
+    async def swap_tokens(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        wallet: Wallet,
+        slippage_bps: int = 50,
+        tx_version: str = "V0",
+        priority_fee_micro_lamports: Optional[int] = None,
+        jito_tip: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """执行代币交换
+        
+        Args:
+            input_mint: 输入代币mint地址
+            output_mint: 输出代币mint地址
+            amount: 输入金额
+            wallet: 钱包对象
+            slippage_bps: 滑点容忍度
+            tx_version: 交易版本
+            priority_fee_micro_lamports: 优先级费用（微lamports）
+            jito_tip: Jito小费（lamports）
+            
+        Returns:
+            交易结果
+        """
+        try:
+            # 获取交易报价
+            quote = await self.get_swap_quote(input_mint, output_mint, amount, slippage_bps, tx_version)
+            
+            # 构建交易
+            transaction_data = await self.build_swap_transaction(
+                quote['data'],
+                str(wallet.pubkey),
+                tx_version,
+                compute_unit_price_micro_lamports=str(priority_fee_micro_lamports) if priority_fee_micro_lamports else None
+            )
+            
+            # 发送交易
+            if transaction_data.get('data') and len(transaction_data['data']) > 0:
+                # 解码交易
+                transaction_bytes = base64.b64decode(transaction_data['data'][0]['transaction'])
+                
+                # 创建交易对象
+                transaction = VersionedTransaction.from_bytes(transaction_bytes)
+                
+                # 添加Jito小费（如果提供）
+                if jito_tip:
+                    transaction = self.mev_protection.add_jito_tip(transaction, jito_tip)
+                
+                # 发送交易（跳过预检以加快速度）
+                response = await self.client.send_transaction(transaction, skip_preflight=True)
+                
+                if response.value:
+                    tx_signature = str(response.value)
+                    
+                    # 等待确认
+                    confirmed = await self.wait_for_confirmation(tx_signature)
+                    
+                    return {
+                        'transaction_signature': tx_signature,
+                        'confirmed': confirmed,
+                        'input_amount': amount,
+                        'output_amount': quote['data'].get('outputAmount', 0),
+                        'price_impact': quote['data'].get('priceImpactPct', 0),
+                        'slippage_bps': slippage_bps,
+                        'priority_fee': priority_fee_micro_lamports,
+                        'jito_tip': jito_tip,
+                        'status': 'success' if confirmed else 'pending'
+                    }
+                else:
+                    raise TradingError("交易发送失败")
+            else:
+                raise TradingError("交易构建失败")
+                
+        except Exception as e:
+            raise TradingError(f"代币交换失败: {e}")
+    
+    async def buy_token(
+        self,
+        token_mint: str,
+        sol_amount: int,
+        wallet: Wallet,
+        slippage_bps: int = 50,
+        priority_fee_micro_lamports: Optional[int] = None,
+        jito_tip: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """购买代币（用SOL购买）
+        
+        Args:
+            token_mint: 目标代币mint地址
+            sol_amount: SOL数量（lamports）
+            wallet: 钱包对象
+            slippage_bps: 滑点容忍度
+            priority_fee_micro_lamports: 优先级费用（微lamports）
+            jito_tip: Jito小费（lamports）
+            
+        Returns:
+            购买结果
+        """
+        # SOL的mint地址
+        sol_mint = "So11111111111111111111111111111111111111112"
+        
+        return await self.swap_tokens(
+            input_mint=sol_mint,
+            output_mint=token_mint,
+            amount=sol_amount,
+            wallet=wallet,
+            slippage_bps=slippage_bps,
+            tx_version="V0",
+            priority_fee_micro_lamports=priority_fee_micro_lamports,
+            jito_tip=jito_tip
+        )
+    
+    async def sell_token(
+        self,
+        token_mint: str,
+        token_amount: int,
+        wallet: Wallet,
+        slippage_bps: int = 50,
+        priority_fee_micro_lamports: Optional[int] = None,
+        jito_tip: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """出售代币（换成SOL）
+        
+        Args:
+            token_mint: 代币mint地址
+            token_amount: 代币数量
+            wallet: 钱包对象
+            slippage_bps: 滑点容忍度
+            priority_fee_micro_lamports: 优先级费用（微lamports）
+            jito_tip: Jito小费（lamports）
+            
+        Returns:
+            出售结果
+        """
+        # SOL的mint地址
+        sol_mint = "So11111111111111111111111111111111111111112"
+        
+        return await self.swap_tokens(
+            input_mint=token_mint,
+            output_mint=sol_mint,
+            amount=token_amount,
+            wallet=wallet,
+            slippage_bps=slippage_bps,
+            tx_version="V0",
+            priority_fee_micro_lamports=priority_fee_micro_lamports,
+            jito_tip=jito_tip
+        )
+    
+    async def execute_trade_with_mev_protection(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        wallet: Wallet,
+        slippage_bps: int = 50,
+        priority_level: str = "medium",
+        jito_tip: Optional[int] = None,
+        max_attempts: int = 3
+    ) -> Dict[str, Any]:
+        """执行交易并包含MEV防护功能
+        
+        Args:
+            input_mint: 输入代币mint地址
+            output_mint: 输出代币mint地址
+            amount: 输入金额
+            wallet: 钱包对象
+            slippage_bps: 滑点容忍度
+            priority_level: 优先级级别（low, medium, high, very_high）
+            jito_tip: Jito小费金额
+            max_attempts: 最大尝试次数
+            
+        Returns:
+            交易结果
+        """
+        return await self.mev_protection.execute_with_mev_protection(
+            self.swap_tokens,
+            input_mint,
+            output_mint,
+            amount,
+            wallet,
+            slippage_bps=slippage_bps,
+            priority_level=priority_level,
+            jito_tip=jito_tip,
+            max_attempts=max_attempts
+        )
 
 
 # 示例使用
@@ -537,6 +855,21 @@ async def example_usage():
         # 估算APY
         apy = await client.get_pool_apy(pool_address)
         print(f"估算APY: {apy:.2f}%")
+        
+        # 测试交易报价（示例）
+        sol_mint = "So11111111111111111111111111111111111111112"
+        usdc_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        
+        try:
+            quote = await client.get_swap_quote(
+                input_mint=sol_mint,
+                output_mint=usdc_mint,
+                amount=100000000,  # 0.1 SOL
+                slippage_bps=50
+            )
+            print("交易报价:", json.dumps(quote, indent=2))
+        except Exception as e:
+            print(f"获取报价失败（正常，因为需要真实代币）: {e}")
         
     finally:
         await client.close()

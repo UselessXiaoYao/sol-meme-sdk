@@ -5,12 +5,31 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sol-meme-sdk"
 version = "0.1.0"
-description = "Python SDK for trading meme coins on Solana blockchain"
-authors = [
-    {name = "Your Name", email = "your.email@example.com"}
-]
+description = "Python SDK for trading meme coins on Solana blockchain with Jupiter DEX integration"
 readme = "README.md"
+authors = [
+    {name = "UselessXiaoYao", email = "your.email@example.com"}
+]
 license = {text = "MIT"}
+keywords = ["solana", "meme", "trading", "sdk", "jupiter", "dex", "crypto"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
+"Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
+"Source" = "https://github.com/UselessXiaoYao/sol-meme-sdk.git"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -31,7 +50,6 @@ dependencies = [
     "base58>=2.1.0",
     "asyncio-mqtt>=0.11.0",
     "python-dotenv>=1.0.0",
-    "raydium-sdk>=0.1.0",
 ]
 
 [project.optional-dependencies]

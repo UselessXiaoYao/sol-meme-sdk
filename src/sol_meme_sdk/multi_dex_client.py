@@ -12,7 +12,7 @@ from solana.rpc.async_api import AsyncClient
 from solana.rpc.commitment import Confirmed
 from solders.pubkey import Pubkey
 
-from .config import get_config
+from .unified_config import get_config
 from .exceptions import TradingError
 from .wallet import Wallet
 from .raydium_client import RaydiumClient

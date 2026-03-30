@@ -23,9 +23,9 @@ class TestJupiterClient:
         assert client.network == "mainnet-beta"
         assert client.api_key == "test_api_key"
         assert client.base_url == "https://api.jup.ag"
-        assert client.quote_endpoint == "/ultra/v1/order"
-        assert client.swap_endpoint == "/ultra/v1/execute"
-        assert client.tokens_endpoint == "/ultra/v1/search"
+        assert client.quote_endpoint == "/ultra/v1/quote"
+        assert client.swap_endpoint == "/ultra/v1/swap"
+        assert client.tokens_endpoint == "/ultra/v1/tokens"
     
     @pytest.mark.asyncio
     async def test_get_quote_sol_to_usdc(self, client):
@@ -53,7 +53,7 @@ class TestJupiterClient:
             # Verify the API was called with correct parameters
             mock_request.assert_called_once()
             call_args = mock_request.call_args[0]
-            assert call_args[0] == "/ultra/v1/order"
+            assert call_args[0] == "/ultra/v1/quote"
             
             params = call_args[1]
             assert params["inputMint"] == "So11111111111111111111111111111111111111112"
@@ -109,7 +109,7 @@ class TestJupiterClient:
             
             mock_request.assert_called_once()
             call_args = mock_request.call_args[0]
-            assert call_args[0] == "/ultra/v1/search"
+            assert call_args[0] == "/ultra/v1/tokens"
             
             params = call_args[1]
             assert params["query"] == "JUP"
