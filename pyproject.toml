@@ -25,11 +25,6 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Office/Business :: Financial :: Investment",
 ]
-
-[project.urls]
-"Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
-"Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
-"Source" = "https://github.com/UselessXiaoYao/sol-meme-sdk.git"
 requires-python = ">=3.8"
 dependencies = [
     "solana>=0.30.0",
@@ -40,6 +35,11 @@ dependencies = [
     "asyncio-mqtt>=0.11.0",
     "python-dotenv>=1.0.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
+"Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
+"Source" = "https://github.com/UselessXiaoYao/sol-meme-sdk.git"
 
 [project.optional-dependencies]
 dev = [
