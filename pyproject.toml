@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sol-meme-sdk"
-version = "0.1.0"
+version = "1.0.0"
 description = "Python SDK for trading meme coins on Solana blockchain with Jupiter DEX integration"
 readme = "README.md"
 authors = [
@@ -30,17 +30,6 @@ classifiers = [
 "Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
 "Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
 "Source" = "https://github.com/UselessXiaoYao/sol-meme-sdk.git"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-]
 requires-python = ">=3.8"
 dependencies = [
     "solana>=0.30.0",
@@ -61,10 +50,6 @@ dev = [
     "mypy>=1.0.0",
 ]
 
-[project.urls]
-"Homepage" = "https://github.com/UselessXiaoYao/sol-meme-sdk"
-"Bug Reports" = "https://github.com/UselessXiaoYao/sol-meme-sdk/issues"
-"Source" = "hhttps://github.com/UselessXiaoYao/sol-meme-sdk.git"
 
 [tool.setuptools.packages.find]
 where = ["src"]
