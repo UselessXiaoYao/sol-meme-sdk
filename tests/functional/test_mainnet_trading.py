@@ -20,8 +20,9 @@ logging.basicConfig(
 # 关闭httpx的详细日志记录
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# 添加项目根目录到Python路径
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, project_root)
 
 from src.sol_meme_sdk.trading_engine import TradingEngine
 from src.sol_meme_sdk.wallet import Wallet
@@ -237,7 +238,8 @@ async def comprehensive_trading_test(token_address: str, token_name: str, wallet
         test_results["current_balance"] = current_balance
         
         if current_balance["token"] > 0:
-            sell_amount = min(0.2, current_balance["token"] * 0.5)  # 最多卖出50%的代币
+            # sell_amount = min(0.2, current_balance["token"] * 0.5)  # 最多卖出50%的代币
+            sell_amount = current_balance["token"]  # 卖出全部代币进行测试
             print(f"💸 卖出 {sell_amount:.6f} {token_name} 进行卖出测试")
             
             sell_result = await test_sell_token(trading_engine, token_address, token_name, sell_amount)
@@ -271,7 +273,7 @@ async def main():
     print("=" * 50)
     
     # 钱包文件路径
-    wallet_file = os.path.join(os.path.dirname(__file__), "new_wallet.json")
+    wallet_file = os.path.join(os.path.dirname(__file__), "../../new_wallet.json")
     
     if not os.path.exists(wallet_file):
         print("❌ 钱包文件不存在，请先创建钱包")

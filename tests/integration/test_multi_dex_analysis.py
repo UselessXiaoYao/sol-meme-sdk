@@ -9,8 +9,9 @@ import sys
 import os
 from typing import Dict, List, Any
 
-# 添加项目路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# 添加项目根目录到Python路径
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, project_root)
 
 from src.sol_meme_sdk.trading_engine import TradingEngine
 from src.sol_meme_sdk.raydium_client import RaydiumClient

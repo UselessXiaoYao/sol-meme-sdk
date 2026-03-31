@@ -8,6 +8,7 @@ from .models import TokenInfo, TradeOrder, TradeResult, Network, TransactionConf
 from .raydium_client import RaydiumClient
 from .meteora_client import MeteoraClient
 from .multi_dex_client import MultiDexClient
+from .simple_trader import SimpleTrader
 from .exceptions import (
     SolMemeError,
     WalletError,
@@ -17,9 +18,10 @@ from .exceptions import (
     InvalidTokenError,
 )
 
-__version__ = "0.3.0"
+__version__ = "1.1.1"
 __all__ = [
     "SolMemeClient",
+    "SimpleTrader",
     "Wallet",
     "TokenInfo",
     "TradeOrder",

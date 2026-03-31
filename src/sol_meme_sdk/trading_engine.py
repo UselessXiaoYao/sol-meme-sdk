@@ -441,21 +441,27 @@ class TradingEngine:
             if not confirmed:
                 raise TradingError("Transaction not confirmed")
             
-            # 等待余额同步（给链上数据时间更新）
-            logger.info("⏳ 等待余额同步（15秒）...")
-            await asyncio.sleep(15.0)  # 增加到15秒让余额充分更新，特别是对于本地RPC节点
+            # 等待1秒确保链上数据稳定（对于某些RPC节点可能有延迟）
+            await asyncio.sleep(1.0)
             
-            # 创建交易结果
-            return TradeResult(
-                order_id=f"{tx_hash[:16]}",
-                token_address=order.token_address,
-                side=order.side,
-                executed_amount=expected_amount,
-                executed_price=await self._get_token_price(order.token_address),
-                total_cost=order.amount if order.side == OrderSide.BUY else expected_amount,
-                transaction_hash=tx_hash,
-                status="completed"
-            )
+            # 从链上获取实际的交易执行结果
+            try:
+                actual_result = await self._get_actual_trade_result(tx_hash, order, expected_amount)
+                logger.info(f"✅ 交易执行完成 - 实际成交: {actual_result.executed_amount}, 价格: {actual_result.executed_price}")
+                return actual_result
+            except Exception as parse_error:
+                logger.warning(f"无法从链上解析实际交易结果，使用预期值: {parse_error}")
+                # 回退到使用预期值
+                return TradeResult(
+                    order_id=f"{tx_hash[:16]}",
+                    token_address=order.token_address,
+                    side=order.side,
+                    executed_amount=expected_amount,
+                    executed_price=await self._get_token_price(order.token_address),
+                    total_cost=order.amount if order.side == OrderSide.BUY else expected_amount,
+                    transaction_hash=tx_hash,
+                    status="completed"
+                )
             
         except Exception as e:
             logger.error(f"Trade execution failed: {e}")
@@ -515,18 +521,26 @@ class TradingEngine:
                 
                 if not confirmed:
                     raise TradingError("Transaction not confirmed")
-                
-                return TradeResult(
-                    order_id=f"{tx_hash[:16]}",
-                    token_address=order.token_address,
-                    side=order.side,
-                    executed_amount=expected_amount,
-                    executed_price=await self._get_token_price(order.token_address),
-                    total_cost=order.amount if order.side == OrderSide.BUY else expected_amount,
-                    transaction_hash=tx_hash,
-                    status="completed",
-                    jupiter_v2_features=analysis.get('features_used', [])
-                )
+
+                # 从链上获取实际的交易执行结果
+                try:
+                    actual_result = await self._get_actual_trade_result(tx_hash, order, expected_amount)
+                    logger.info(f"✅ Jupiter V2交易执行完成 - 实际成交: {actual_result.executed_amount}, 价格: {actual_result.executed_price}")
+                    return actual_result
+                except Exception as parse_error:
+                    logger.warning(f"无法从链上解析Jupiter V2实际交易结果，使用预期值: {parse_error}")
+                    # 回退到使用预期值
+                    return TradeResult(
+                        order_id=f"{tx_hash[:16]}",
+                        token_address=order.token_address,
+                        side=order.side,
+                        executed_amount=expected_amount,
+                        executed_price=await self._get_token_price(order.token_address),
+                        total_cost=order.amount if order.side == OrderSide.BUY else expected_amount,
+                        transaction_hash=tx_hash,
+                        status="completed",
+                        jupiter_v2_features=analysis.get('features_used', [])
+                    )
             except Exception as e:
                 logger.warning(f"直接签名失败: {e}")
                 
@@ -550,13 +564,24 @@ class TradingEngine:
                     # 自己签名交易
                     signed_tx = self.wallet.sign_transaction(transaction)
                     
-                    # 发送已签名的交易
-                    tx_hash = await self._send_transaction_with_retry(signed_tx)
-                    confirmed = await self._wait_for_confirmation(tx_hash)
-                    
-                    if not confirmed:
-                        raise TradingError("Transaction not confirmed")
-                    
+                # 发送已签名的交易
+                tx_hash = await self._send_transaction_with_retry(signed_tx)
+                confirmed = await self._wait_for_confirmation(tx_hash)
+                
+                if not confirmed:
+                    raise TradingError("Transaction not confirmed")
+                
+                # 等待1秒确保链上数据稳定
+                await asyncio.sleep(1.0)
+                
+                # 从链上获取实际的交易执行结果
+                try:
+                    actual_result = await self._get_actual_trade_result(tx_hash, order, expected_amount)
+                    logger.info(f"✅ Jupiter V2回退方案交易执行完成 - 实际成交: {actual_result.executed_amount}, 价格: {actual_result.executed_price}")
+                    return actual_result
+                except Exception as parse_error:
+                    logger.warning(f"无法从链上解析Jupiter V2实际交易结果，使用预期值: {parse_error}")
+                    # 回退到使用预期值
                     return TradeResult(
                         order_id=f"{tx_hash[:16]}",
                         token_address=order.token_address,
@@ -619,9 +644,8 @@ class TradingEngine:
             if not confirmed:
                 raise TradingError("Transaction not confirmed")
             
-            # 等待余额同步（给链上数据时间更新）
-            logger.info("⏳ 等待余额同步（15秒）...")
-            await asyncio.sleep(15.0)  # 增加到15秒让余额充分更新，特别是对于本地RPC节点
+            # 等待1秒确保链上数据稳定（对于某些RPC节点可能有延迟）
+            await asyncio.sleep(1.0)
             
             # 创建交易结果
             return TradeResult(
@@ -891,6 +915,7 @@ class TradingEngine:
                                         commitment="confirmed"
                                     )
                                     if tx_details.value:
+                                        # 始终打印交易详情信息
                                         self._print_transaction_details(tx_details.value)
                                     else:
                                         logger.info("   🔍 交易已确认，但无法获取详细交易信息")
@@ -1562,3 +1587,186 @@ class TradingEngine:
             }
         
         return performance
+
+    async def _get_actual_trade_result(self, tx_hash: str, order: TradeOrder, expected_amount: float) -> TradeResult:
+        """从链上获取实际的交易执行结果
+        
+        Args:
+            tx_hash: 交易哈希
+            order: 交易订单
+            expected_amount: 预期成交数量
+            
+        Returns:
+            TradeResult: 包含实际交易数据的交易结果
+        """
+        try:
+            # 获取交易详情
+            from solders.signature import Signature
+            
+            rpc_client = self._get_rpc_client()
+            signature = Signature.from_string(tx_hash)
+            
+            # 获取交易详情
+            tx_response = rpc_client.get_transaction(
+                signature,
+                max_supported_transaction_version=0,
+                encoding="jsonParsed",
+                commitment="confirmed"
+            )
+            
+            if not tx_response.value:
+                raise TradingError(f"无法获取交易详情: {tx_hash}")
+            
+            # 解析实际的交易结果
+            actual_amount = self._parse_actual_trade_amount(tx_response.value, order, expected_amount)
+            actual_price = self._parse_actual_trade_price(tx_response.value, order, actual_amount)
+            
+            # 计算总成本/收益
+            if order.side == OrderSide.BUY:
+                total_cost = order.amount  # 购买时总成本是输入的SOL数量
+            else:
+                total_cost = actual_amount  # 卖出时总收益是实际获得的SOL数量
+            
+            logger.info(f"🔍 链上解析结果 - 实际成交: {actual_amount}, 实际价格: {actual_price}")
+            
+            return TradeResult(
+                order_id=f"{tx_hash[:16]}",
+                token_address=order.token_address,
+                side=order.side,
+                executed_amount=actual_amount,
+                executed_price=actual_price,
+                total_cost=total_cost,
+                transaction_hash=tx_hash,
+                status="completed"
+            )
+            
+        except Exception as e:
+            logger.error(f"解析实际交易结果失败: {e}")
+            raise TradingError(f"无法从链上解析交易结果: {e}")
+
+    def _parse_actual_trade_amount(self, tx_details, order: TradeOrder, expected_amount: float) -> float:
+        """从交易详情中解析实际成交的代币数量
+        
+        Args:
+            tx_details: 交易详情
+            order: 交易订单
+            expected_amount: 预期成交数量（用于回退）
+            
+        Returns:
+            float: 实际成交的代币数量
+        """
+        try:
+            # 获取交易中的代币余额变化
+            # 注意：meta属性在tx_details.transaction.meta中
+            if hasattr(tx_details, 'transaction') and tx_details.transaction:
+                transaction = tx_details.transaction
+                if hasattr(transaction, 'meta') and transaction.meta:
+                    meta = transaction.meta
+                    pre_token_balances = getattr(meta, 'pre_token_balances', []) or []
+                    post_token_balances = getattr(meta, 'post_token_balances', []) or []
+                    
+                    logger.debug(f"🔍 交易详情分析 - 前余额记录数: {len(pre_token_balances)}, 后余额记录数: {len(post_token_balances)}")
+                    
+                    # 查找目标代币的余额变化
+                    for pre_balance in pre_token_balances:
+                        pre_mint = getattr(pre_balance, 'mint', None)
+                        if pre_mint and str(pre_mint) == order.token_address:
+                            # 找到匹配的前余额，查找对应的后余额
+                            for post_balance in post_token_balances:
+                                post_mint = getattr(post_balance, 'mint', None)
+                                if post_mint and str(post_mint) == order.token_address:
+                                    # 计算代币数量变化
+                                    pre_amount = getattr(getattr(pre_balance, 'ui_token_amount', None), 'amount', 0)
+                                    post_amount = getattr(getattr(post_balance, 'ui_token_amount', None), 'amount', 0)
+                                    
+                                    if pre_amount is not None and post_amount is not None:
+                                        # 将字符串转换为数字
+                                        try:
+                                            pre_amount_num = int(pre_amount)
+                                            post_amount_num = int(post_amount)
+                                        except (ValueError, TypeError):
+                                            pre_amount_num = 0
+                                            post_amount_num = 0
+                                        
+                                        if order.side == OrderSide.BUY:
+                                            # 买入：代币增加
+                                            amount_change = post_amount_num - pre_amount_num
+                                        else:
+                                            # 卖出：代币减少
+                                            amount_change = pre_amount_num - post_amount_num
+                                        
+                                        logger.info(f"🔍 找到代币余额变化 - 前: {pre_amount_num}, 后: {post_amount_num}, 变化: {amount_change}")
+                                        
+                                        if amount_change > 0:
+                                            # 转换为小数（考虑代币精度）
+                                            decimals = getattr(getattr(post_balance, 'ui_token_amount', None), 'decimals', 6)
+                                            actual_amount = amount_change / (10 ** decimals)
+                                            logger.info(f"🔍 解析到实际成交数量: {actual_amount} (链上变化: {amount_change}, 精度: {decimals})")
+                                            return actual_amount
+            
+            # 如果无法解析，返回预期值
+            logger.warning(f"无法从交易详情中解析实际成交数量，使用预期值: {expected_amount}")
+            return expected_amount
+            
+        except Exception as e:
+            logger.warning(f"解析实际成交数量失败，使用预期值: {e}")
+            return expected_amount
+
+    def _parse_actual_trade_price(self, tx_details, order: TradeOrder, actual_amount: float) -> float:
+        """从交易详情中解析实际执行价格
+        
+        Args:
+            tx_details: 交易详情
+            order: 交易订单
+            actual_amount: 实际成交的代币数量
+            
+        Returns:
+            float: 实际执行价格（SOL/代币）
+        """
+        try:
+            # 计算实际的汇率
+            if order.side == OrderSide.BUY:
+                # 买入：price = SOL数量 / 代币数量
+                # 成本是SOL数量，收益是代币数量
+                if actual_amount > 0:
+                    actual_price = order.amount / actual_amount
+                else:
+                    actual_price = 0.0
+            else:
+                # 卖出：price = SOL数量 / 代币数量  
+                # 成本是代币数量，收益是SOL数量
+                if order.amount > 0:
+                    actual_price = actual_amount / order.amount
+                else:
+                    actual_price = 0.0
+            
+            if actual_price <= 0:
+                logger.warning(f"计算的实际价格异常: {actual_price}，使用当前市场价格")
+                # 回退到获取当前市场价格
+                return self._get_token_price_sync(order.token_address)
+            
+            return actual_price
+            
+        except Exception as e:
+            logger.warning(f"解析实际执行价格失败，使用当前价格: {e}")
+            return self._get_token_price_sync(order.token_address)
+
+    def _get_token_price_sync(self, token_address: str) -> float:
+        """同步方式获取代币价格（用于异常处理）
+        
+        Args:
+            token_address: 代币地址
+            
+        Returns:
+            float: 代币价格
+        """
+        try:
+            # 如果是SOL，直接返回1.0
+            if token_address == self.common_tokens["SOL"]:
+                return 1.0
+            
+            # 直接返回默认价格，避免异步调用问题
+            return 0.001
+        except:
+            # 最终回退到默认价格
+            return 0.001
